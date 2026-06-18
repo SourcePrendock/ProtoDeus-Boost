@@ -52,6 +52,39 @@ netsh winsock reset && netsh int ip reset && ipconfig /flushdns
 
 ---
 
+📁 Estructura del Repositorio
+
+ProtoDeus Boost/
+├── main.py              # Punto de entrada de la app, GUI principal y bypass de UAC
+├── info_pc.py           # Recolección y formateo de métricas de hardware
+├── optimizer.py         # Lógica interna y ejecución de subprocesos de optimización
+├── tools.py             # Herramientas de red y recuperación de claves de activación
+├── assets/
+│   └── icon.ico         # Identidad visual e icono incrustado del ejecutable
+├── requirements.txt     # Dependencias de Python necesarias para el entorno
+└── build.bat            # Script automatizado para compilación local con PyInstaller
+
+🛠️ Instalación y Compilación (Desarrolladores)
+
+Si deseas clonar el proyecto para modificarlo o compilarlo de forma independiente por tu cuenta, sigue estos pasos:
+
+    Clonar el repositorio:
+    Bash
+
+    git clone https://github.com/tu-usuario/ProtoDeus-Boost.git
+    cd ProtoDeus-Boost
+
+    Instalar el entorno de dependencias:
+    Bash
+
+    pip install -r requirements.txt
+
+    Compilar a un único archivo .exe:
+    Puedes utilizar el script automatizado build.bat o ejecutar directamente el comando de PyInstaller con los flags de elevación administrativa incluidos de fábrica:
+    Bash
+
+    pyinstaller --onefile --noconsole --uac-admin --icon=assets/icon.ico main.py
+
 
 > 📦 **Resultado:** El binario final optimizado se guardará de forma automática en la carpeta `dist/`. Es completamente autónomo y está listo para usarse en cualquier máquina Windows sin necesidad de tener Python instalado.
 
