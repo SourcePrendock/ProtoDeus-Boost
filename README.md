@@ -1,4 +1,3 @@
-Aquí tienes el contenido completamente optimizado y formateado con las mejores prácticas de Markdown para GitHub. Se mejoró la jerarquía visual con **negritas estratégicas**, separadores limpios, citas resaltadas, bloques de código corregidos y una estructura mucho más escaneable e impactante para los visitantes de tu repositorio.
 
 ---
 
@@ -108,5 +107,3 @@ pyinstaller --onefile --noconsole --uac-admin --icon=assets/icon.ico main.py
 * **Privilegios Requeridos:** Requiere la confirmación explícita de la ventana de **Control de Cuentas de Usuario (UAC)** al iniciar. La elevación a **Administrador** es estrictamente mandatoria para poder interactuar con los servicios del sistema, modificar parámetros del registro y resetear los sockets de red.
 
 ---
-
-> ⚠️ **Aviso de Seguridad:** *ProtoDeus Boost interactúa con configuraciones sensibles a bajo nivel del sistema operativo. Se recomienda guardar cualquier trabajo abierto antes de ejecutar las tareas de limpieza profunda o restablecimiento de interfaces.*
