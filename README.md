@@ -52,22 +52,6 @@ netsh winsock reset && netsh int ip reset && ipconfig /flushdns
 
 ---
 
-## 📁 Estructura del Repositorio
-
-```text
-ProtoDeus Boost/
-├── main.py              # Punto de entrada de la app, GUI principal y bypass de UAC
-├── info_pc.py           # Recolección y formateo de métricas de hardware
-├── optimizer.py         # Lógica interna y ejecución de subprocesos de optimización
-├── tools.py             # Herramientas de red y recuperación de claves de activación
-├── assets/
-│   └── icon.ico         # Identidad visual e icono incrustado del ejecutable
-├── requirements.txt     # Dependencias de Python necesarias para el entorno
-└── build.bat            # Script automatizado para compilación local con PyInstaller
-
-```
-
----
 
 ## 🛠️ Instalación y Compilación (Desarrolladores)
 
