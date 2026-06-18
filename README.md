@@ -1,4 +1,3 @@
-
 ---
 
 # 🛠️ ProtoDeus Boost — Windows Optimizer & Diagnostics
@@ -52,8 +51,9 @@ netsh winsock reset && netsh int ip reset && ipconfig /flushdns
 
 ---
 
-📁 Estructura del Repositorio
+## 📁 Estructura del Repositorio
 
+```text
 ProtoDeus Boost/
 ├── main.py              # Punto de entrada de la app, GUI principal y bypass de UAC
 ├── info_pc.py           # Recolección y formateo de métricas de hardware
@@ -64,26 +64,36 @@ ProtoDeus Boost/
 ├── requirements.txt     # Dependencias de Python necesarias para el entorno
 └── build.bat            # Script automatizado para compilación local con PyInstaller
 
-🛠️ Instalación y Compilación (Desarrolladores)
+```
+
+---
+
+## 🛠️ Instalación y Compilación (Desarrolladores)
 
 Si deseas clonar el proyecto para modificarlo o compilarlo de forma independiente por tu cuenta, sigue estos pasos:
 
-    Clonar el repositorio:
-    Bash
+1. **Clonar el repositorio:**
+```bash
+git clone https://github.com/tu-usuario/ProtoDeus-Boost.git
+cd ProtoDeus-Boost
 
-    git clone https://github.com/tu-usuario/ProtoDeus-Boost.git
-    cd ProtoDeus-Boost
+```
 
-    Instalar el entorno de dependencias:
-    Bash
 
-    pip install -r requirements.txt
+2. **Instalar el entorno de dependencias:**
+```bash
+pip install -r requirements.txt
 
-    Compilar a un único archivo .exe:
-    Puedes utilizar el script automatizado build.bat o ejecutar directamente el comando de PyInstaller con los flags de elevación administrativa incluidos de fábrica:
-    Bash
+```
 
-    pyinstaller --onefile --noconsole --uac-admin --icon=assets/icon.ico main.py
+
+3. **Compilar a un único archivo `.exe`:**
+Puedes utilizar el script automatizado `build.bat` o ejecutar directamente el comando de `PyInstaller` con los flags de elevación administrativa incluidos de fábrica:
+```bash
+pyinstaller --onefile --noconsole --uac-admin --icon=assets/icon.ico main.py
+
+```
+
 
 
 > 📦 **Resultado:** El binario final optimizado se guardará de forma automática en la carpeta `dist/`. Es completamente autónomo y está listo para usarse en cualquier máquina Windows sin necesidad de tener Python instalado.
@@ -96,3 +106,5 @@ Si deseas clonar el proyecto para modificarlo o compilarlo de forma independient
 * **Privilegios Requeridos:** Requiere la confirmación explícita de la ventana de **Control de Cuentas de Usuario (UAC)** al iniciar. La elevación a **Administrador** es estrictamente mandatoria para poder interactuar con los servicios del sistema, modificar parámetros del registro y resetear los sockets de red.
 
 ---
+
+> ⚠️ **Aviso de Seguridad:** *ProtoDeus Boost interactúa con configuraciones sensibles a bajo nivel del sistema operativo. Se recomienda guardar cualquier trabajo abierto antes de ejecutar las tareas de limpieza profunda o restablecimiento de interfaces.*
