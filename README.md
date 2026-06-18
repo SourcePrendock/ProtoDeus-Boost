@@ -53,34 +53,6 @@ netsh winsock reset && netsh int ip reset && ipconfig /flushdns
 ---
 
 
-## 🛠️ Instalación y Compilación (Desarrolladores)
-
-Si deseas clonar el proyecto para modificarlo o compilarlo de forma independiente por tu cuenta, sigue estos pasos:
-
-1. **Clonar el repositorio:**
-```bash
-git clone https://github.com/tu-usuario/ProtoDeus-Boost.git
-cd ProtoDeus-Boost
-
-```
-
-
-2. **Instalar el entorno de dependencias:**
-```bash
-pip install -r requirements.txt
-
-```
-
-
-3. **Compilar a un único archivo `.exe`:**
-Puedes utilizar el script automatizado `build.bat` o ejecutar directamente el comando de `PyInstaller` con los flags de elevación administrativa incluidos de fábrica:
-```bash
-pyinstaller --onefile --noconsole --uac-admin --icon=assets/icon.ico main.py
-
-```
-
-
-
 > 📦 **Resultado:** El binario final optimizado se guardará de forma automática en la carpeta `dist/`. Es completamente autónomo y está listo para usarse en cualquier máquina Windows sin necesidad de tener Python instalado.
 
 ---
