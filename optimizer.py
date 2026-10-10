@@ -6,10 +6,14 @@ import ctypes
 import glob
 
 
+CREATE_NO_WINDOW = 0x08000000
+
+
 def _run(cmd, shell=True):
     result = subprocess.run(
         cmd, shell=shell, capture_output=True, text=True,
-        encoding="utf-8", errors="ignore"
+        encoding="utf-8", errors="ignore",
+        creationflags=CREATE_NO_WINDOW
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -41,44 +45,49 @@ def _mb(b):
     return round(b / (1024 * 1024), 2)
 
 
-def limpiar_temporales():
+def limpieza_express():
+    """
+    Limpieza Express — Rápida, sin riesgos, ejecutable diariamente.
+    Limpia carpetas TEMP del usuario y del sistema, y vacía la Papelera de Reciclaje.
+    """
     rutas = [
-        os.environ.get("TEMP", ""),
-        os.environ.get("TMP", ""),
-        r"C:\Windows\Temp",
-        r"C:\Windows\Prefetch",
+        ("Carpeta TEMP del usuario", os.environ.get("TEMP", "")),
+        ("Carpeta TEMP del sistema", r"C:\Windows\Temp"),
     ]
     total = 0
-    for i, ruta in enumerate(rutas):
+    for i, (nombre, ruta) in enumerate(rutas):
         if ruta:
-            yield (f"Limpiando: {ruta}", int((i / len(rutas)) * 90))
+            yield (f"Limpiando {nombre}: {ruta}", int((i / len(rutas)) * 60))
             total += _delete_folder_contents(ruta)
-    yield (f"✅ Temporales limpiados — {_mb(total)} MB liberados", 100)
+    yield ("Vaciando Papelera de Reciclaje...", 75)
+    try:
+        ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0x0007)
+    except Exception:
+        pass
+    yield (f"✅ Limpieza Express completa — {_mb(total)} MB liberados", 100)
 
 
 def limpieza_profunda():
-    yield ("Iniciando limpieza profunda...", 5)
+    """
+    Limpieza Profunda — Liberación masiva de espacio en disco.
+    Ejecuta DISM para limpiar componentes antiguos de Windows Update,
+    elimina archivos de volcado de memoria, logs antiguos y caché de shaders.
+    ⚠ Requiere reinicio del sistema después de ejecutarse.
+    """
+    yield ("Iniciando limpieza profunda del sistema...", 5)
     total = 0
-    for ruta in [os.environ.get("TEMP", ""), r"C:\Windows\Temp", r"C:\Windows\Prefetch"]:
-        if ruta:
-            yield (f"Limpiando: {ruta}", 10)
-            total += _delete_folder_contents(ruta)
-    yield ("Vaciando Papelera de Reciclaje...", 30)
-    ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0x0007)
-    thumb_db = os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\Windows\Explorer")
-    yield ("Limpiando caché de miniaturas...", 50)
-    total += _delete_folder_contents(thumb_db)
-    yield ("Limpiando caché de fuentes...", 60)
-    try:
-        fc = r"C:\Windows\System32\FNTCACHE.DAT"
-        if os.path.exists(fc):
-            os.unlink(fc)
-    except Exception:
-        pass
-    wu_logs = r"C:\Windows\SoftwareDistribution\Download"
-    yield ("Limpiando archivos de Windows Update...", 70)
-    total += _delete_folder_contents(wu_logs)
-    yield ("Eliminando archivos de volcado de memoria...", 80)
+
+    # 1. DISM — Limpiar componentes antiguos de Windows Update (la operación más pesada)
+    yield ("Ejecutando DISM /StartComponentCleanup /ResetBase (puede tardar varios minutos)...", 10)
+    _run("DISM /Online /Cleanup-Image /StartComponentCleanup /ResetBase", shell=True)
+
+    # 2. Limpiar carpeta SoftwareDistribution\Download (actualizaciones descargadas)
+    wu_download = r"C:\Windows\SoftwareDistribution\Download"
+    yield ("Limpiando descargas de Windows Update (SoftwareDistribution\\Download)...", 35)
+    total += _delete_folder_contents(wu_download)
+
+    # 3. Eliminar archivos de volcado de memoria (Memory.dmp y Minidump)
+    yield ("Eliminando archivos de volcado de memoria (Memory.dmp, Minidump)...", 50)
     for dp in [r"C:\Windows\Minidump", r"C:\Windows\memory.dmp"]:
         if os.path.isdir(dp):
             total += _delete_folder_contents(dp)
@@ -88,7 +97,9 @@ def limpieza_profunda():
                 os.unlink(dp)
             except Exception:
                 pass
-    yield ("Eliminando logs antiguos del sistema...", 90)
+
+    # 4. Eliminar registros antiguos de eventos de Windows (.log, .bak)
+    yield ("Eliminando registros antiguos del sistema (.log, .bak)...", 65)
     for pattern in [r"C:\Windows\*.log", r"C:\Windows\*.bak"]:
         for f in glob.glob(pattern):
             try:
@@ -96,32 +107,104 @@ def limpieza_profunda():
                 os.unlink(f)
             except Exception:
                 pass
-    yield (f"✅ Limpieza profunda completa — {_mb(total)} MB liberados", 100)
+
+    # 5. Limpiar caché de sombreadores de DirectX (D3DSCache, NVIDIA DXCache, AMD DxCache)
+    yield ("Limpiando caché de sombreadores de DirectX...", 80)
+    local = os.environ.get("LOCALAPPDATA", "")
+    shader_caches = [
+        os.path.join(local, "D3DSCache"),
+        os.path.join(local, r"NVIDIA\DXCache"),
+        os.path.join(local, r"NVIDIA\GLCache"),
+        os.path.join(local, r"AMD\DxCache"),
+        os.path.join(local, r"AMD\GLCache"),
+    ]
+    for cache_dir in shader_caches:
+        if os.path.isdir(cache_dir):
+            total += _delete_folder_contents(cache_dir)
+
+    yield (f"✅ Limpieza profunda completa — {_mb(total)} MB liberados. Se recomienda reiniciar el PC.", 100)
 
 
 def limpiar_navegadores():
+    """
+    Limpieza de Navegadores Web — Restablece perfiles eliminando caché, cookies, historial,
+    sesiones persistentes y datos temporales.
+    Soporta: Edge, Chrome, Firefox, Brave, Zen, Opera GX, Opera, Vivaldi, LibreWolf, IE.
+    ⚠ Cierra todos los navegadores abiertos antes de limpiar.
+    """
     local = os.environ.get("LOCALAPPDATA", "")
     appd = os.environ.get("APPDATA", "")
-    rutas_nav = {
-        "Google Chrome":  [os.path.join(local, r"Google\Chrome\User Data\Default\Cache"),
-                           os.path.join(local, r"Google\Chrome\User Data\Default\Code Cache")],
-        "Microsoft Edge": [os.path.join(local, r"Microsoft\Edge\User Data\Default\Cache"),
-                           os.path.join(local, r"Microsoft\Edge\User Data\Default\Code Cache")],
-        "Firefox":        [os.path.join(appd, r"Mozilla\Firefox\Profiles")],
-        "Brave":          [os.path.join(local, r"BraveSoftware\Brave-Browser\User Data\Default\Cache")],
-        "Opera":          [os.path.join(appd, r"Opera Software\Opera Stable\Cache")],
+
+    # 1. Cerrar todos los procesos de navegadores
+    yield ("Cerrando todos los navegadores abiertos en segundo plano...", 2)
+    browser_processes = [
+        "msedge.exe", "chrome.exe", "firefox.exe", "brave.exe",
+        "opera.exe", "vivaldi.exe", "zen.exe", "librewolf.exe",
+        "iexplore.exe",
+    ]
+    for proc in browser_processes:
+        _run(f"taskkill /f /im {proc} /t 2>nul")
+    import time
+    time.sleep(2)  # Dar tiempo a que los procesos se cierren
+
+    # Definir navegadores y sus rutas base
+    navegadores = {
+        "Microsoft Edge": {"rutas": [os.path.join(local, r"Microsoft\Edge\User Data")]},
+        "Google Chrome": {"rutas": [os.path.join(local, r"Google\Chrome\User Data")]},
+        "Firefox": {"rutas": [os.path.join(appd, r"Mozilla\Firefox\Profiles"), os.path.join(local, r"Mozilla\Firefox\Profiles")]},
+        "Brave": {"rutas": [os.path.join(local, r"BraveSoftware\Brave-Browser\User Data")]},
+        "Zen Browser": {"rutas": [os.path.join(appd, r"zen\Profiles"), os.path.join(local, r"zen\Profiles")]},
+        "Opera GX": {"rutas": [os.path.join(appd, r"Opera Software\Opera GX Stable"), os.path.join(local, r"Opera Software\Opera GX Stable")]},
+        "Opera": {"rutas": [os.path.join(appd, r"Opera Software\Opera Stable"), os.path.join(local, r"Opera Software\Opera Stable")]},
+        "Vivaldi": {"rutas": [os.path.join(local, r"Vivaldi\User Data")]},
+        "LibreWolf": {"rutas": [os.path.join(appd, r"librewolf\Profiles"), os.path.join(local, r"librewolf\Profiles")]},
     }
+
+    subcarpetas_borrar = [
+        "Cache",
+        "Code Cache",
+        "GPUCache",
+        "Cookies",
+        "Web Storage",
+        "Network", # Chromium cache/cookies often stored here now
+        "Storage", # Firefox local storage
+        "cache2", # Firefox cache
+    ]
+
     total = 0
-    items = list(rutas_nav.items())
-    for i, (nav, rutas) in enumerate(items):
-        yield (f"Limpiando {nav}...", int((i / len(items)) * 90))
-        for ruta in rutas:
-            if "Profiles" in ruta and os.path.exists(ruta):
-                for perfil in os.listdir(ruta):
-                    total += _delete_folder_contents(os.path.join(ruta, perfil, "cache2"))
-            else:
-                total += _delete_folder_contents(ruta)
-    yield (f"✅ Caché de navegadores limpiada — {_mb(total)} MB liberados", 100)
+    items = list(navegadores.items())
+    for i, (nav, info) in enumerate(items):
+        pct = int(5 + (i / len(items)) * 80)
+        rutas_existentes = [r for r in info["rutas"] if os.path.exists(r)]
+        if not rutas_existentes:
+            yield (f"⏭ {nav} no encontrado — omitido", pct)
+            continue
+        yield (f"🗑 Eliminando caché y cookies de {nav}...", pct)
+        
+        # Buscar en las rutas base y en sus subdirectorios (como perfiles Default, Profile 1, etc.)
+        for ruta_base in rutas_existentes:
+            for root, dirs, files in os.walk(ruta_base):
+                for sub_dir in dirs:
+                    if sub_dir in subcarpetas_borrar or sub_dir.startswith("Cache"):
+                        full_dir = os.path.join(root, sub_dir)
+                        total += _delete_folder_contents(full_dir)
+                
+                # Para Firefox y Chromium, algunos archivos están en la raíz del perfil
+                for f in files:
+                    lower_f = f.lower()
+                    if "cookie" in lower_f or "history" in lower_f or "webappsstore" in lower_f:
+                        try:
+                            full_file = os.path.join(root, f)
+                            total += os.path.getsize(full_file)
+                            os.unlink(full_file)
+                        except Exception:
+                            pass
+
+    # Internet Explorer — usar la API del sistema
+    yield ("🗑 Limpiando Internet Explorer (RunDll32)...", 90)
+    _run("RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 255")
+
+    yield (f"✅ Todos los navegadores limpiados — {_mb(total)} MB liberados", 100)
 
 
 def limpiar_registro():

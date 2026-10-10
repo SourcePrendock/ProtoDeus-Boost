@@ -1,14 +1,14 @@
 @echo off
-title ProtoDeus Boost — Compilador
+title ProtoDeus Boost 3.0 — Compilador
 color 0A
 echo.
 echo  ========================================
-echo   PROTODEUS BOOST — Generador de .exe
+echo   PROTODEUS BOOST 3.0 — Generador de .exe
 echo  ========================================
 echo.
 
-:: Usar ruta completa de Python 3.11
-set PYTHON=%USERPROFILE%\AppData\Local\Programs\Python\Python311\python.exe
+:: Usar Python del entorno
+set PYTHON=python
 set PIP=%PYTHON% -m pip
 set PYINSTALLER=%PYTHON% -m PyInstaller
 
@@ -49,6 +49,7 @@ echo [3/4] Compilando con PyInstaller...
     --hidden-import=wmi ^
     --hidden-import=win32com.client ^
     --hidden-import=pywintypes ^
+    --hidden-import=preventive_maintenance ^
     --collect-all customtkinter ^
     main.py
 

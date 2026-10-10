@@ -1,14 +1,13 @@
 # =============================================================================
-#  make_icon.py — Generador de Ícono para ProtoDeus Boost
-#  Crea un ícono .ico vectorial programáticamente usando Pillow.
-#  Diseño: fondo oscuro con gradiente, rayo (⚡) centrado en degradado violeta.
+#  make_icon.py — Generador de Ícono HD para ProtoDeus Boost
+#  Crea un ícono .ico de alta definición usando renderizado a resolución 8x
+#  y reducción con LANCZOS para obtener bordes nítidos como Chrome u Office.
 #  Tamaños generados: 256, 128, 64, 48, 32, 16 px — todos en un solo .ico.
 # =============================================================================
 
 import os
 import math
-from PIL import Image, ImageDraw, ImageFont
-
+from PIL import Image, ImageDraw, ImageFilter
 
 # =============================================================================
 #  CONFIGURACIÓN DEL DISEÑO DEL ÍCONO
@@ -16,125 +15,217 @@ from PIL import Image, ImageDraw, ImageFont
 
 # Colores del diseño (consistentes con la paleta de la aplicación)
 COLOR_BG_OUTER   = (10, 10, 15, 255)    # Fondo exterior muy oscuro
-COLOR_BG_CENTER  = (28, 20, 60, 255)    # Centro violeta oscuro
+COLOR_BG_CENTER  = (30, 22, 65, 255)    # Centro violeta oscuro (más saturado)
 COLOR_VIOLET     = (124, 58, 237, 255)  # Violeta principal (borde)
-COLOR_BOLT_TOP   = (167, 139, 250, 255) # Rayo — punta (lila claro)
-COLOR_BOLT_BOT   = (109, 40, 217, 255)  # Rayo — base (violeta profundo)
-COLOR_GLOW       = (124, 58, 237, 80)   # Halo difuso alrededor del rayo
+COLOR_VIOLET_BRT = (147, 87, 255, 255)  # Violeta brillante (borde highlight)
+COLOR_BOLT_TOP   = (180, 160, 255, 255) # Rayo — punta superior (lila claro brillante)
+COLOR_BOLT_MID   = (140, 100, 250, 255) # Rayo — centro (violeta medio)
+COLOR_BOLT_BOT   = (100, 35, 210, 255)  # Rayo — base (violeta profundo)
+COLOR_GLOW       = (124, 58, 237, 100)  # Halo difuso alrededor del rayo
+COLOR_BOLT_GLOW  = (167, 139, 250, 60)  # Resplandor suave del rayo
+COLOR_SHADOW     = (20, 10, 50, 120)    # Sombra del rayo
 
 
 def _lerp_color(c1, c2, t):
     """Interpola linealmente entre dos colores RGBA según el parámetro t (0.0 a 1.0)."""
-    return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(4))
+    t = max(0.0, min(1.0, t))
+    return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(len(c1)))
 
 
-def _draw_bolt(draw, cx, cy, size):
+def _draw_radial_gradient(img, cx, cy, radius, inner_color, outer_color):
     """
-    Dibuja un símbolo de rayo (⚡) centrado en (cx, cy) con el tamaño dado.
-    Usa un polígono con gradiente vertical (top → bottom) para el efecto premium.
-    El rayo es una forma clásica: diagonal hacia abajo-derecha con una muesca central.
+    Dibuja un gradiente radial de alta calidad usando bandas concéntricas
+    para evitar el método pixel-a-pixel que es lento y borroso.
     """
-    # Escala relativa al tamaño del ícono
-    w  = size * 0.28   # ancho total del rayo
-    h  = size * 0.58   # alto total del rayo
-    ox = cx - w * 0.5  # offset X para centrar
-    oy = cy - h * 0.5  # offset Y para centrar
+    draw = ImageDraw.Draw(img)
+    steps = max(radius, 200)  # Más pasos = gradiente más suave
+    for i in range(steps, 0, -1):
+        t = i / steps
+        r = int(radius * t)
+        color = _lerp_color(inner_color, outer_color, t)
+        if r > 0:
+            draw.ellipse(
+                [cx - r, cy - r, cx + r, cy + r],
+                fill=color
+            )
 
-    # Puntos del polígono del rayo (forma de ⚡ clásico)
-    pts = [
-        (ox + w * 0.65, oy),               # 0: esquina superior derecha
-        (ox + w * 0.20, oy + h * 0.44),    # 1: punta interna izquierda (medio)
-        (ox + w * 0.55, oy + h * 0.42),    # 2: vértice central derecho
-        (ox + w * 0.35, oy + h),           # 3: esquina inferior izquierda
-        (ox + w * 0.80, oy + h * 0.52),    # 4: punta interna derecha (medio)
-        (ox + w * 0.45, oy + h * 0.54),    # 5: vértice central izquierdo
+
+def _get_bolt_polygon(cx, cy, size):
+    """
+    Retorna los puntos del polígono del rayo (⚡) con proporciones refinadas.
+    Forma más angular y definida que la versión anterior.
+    """
+    w = size * 0.30   # ancho total del rayo
+    h = size * 0.56   # alto total del rayo
+    ox = cx - w * 0.45
+    oy = cy - h * 0.50
+
+    # Polígono del rayo — forma ⚡ con ángulos más definidos
+    return [
+        (ox + w * 0.60, oy),                # 0: punta superior derecha
+        (ox + w * 0.10, oy + h * 0.46),     # 1: vértice izquierdo medio
+        (ox + w * 0.48, oy + h * 0.43),     # 2: muesca central derecha
+        (ox + w * 0.32, oy + h),            # 3: punta inferior
+        (ox + w * 0.85, oy + h * 0.52),     # 4: vértice derecho medio
+        (ox + w * 0.50, oy + h * 0.55),     # 5: muesca central izquierda
     ]
 
-    # Dibuja el rayo con el color superior (sin gradiente directo en Pillow para polígonos)
-    draw.polygon(pts, fill=COLOR_BOLT_TOP)
 
-
-def create_icon_at_size(size):
+def _draw_bolt_with_gradient(img, cx, cy, size):
     """
-    Crea una imagen RGBA del ícono al tamaño especificado.
-    Pasos: fondo con gradiente radial → borde circular violeta → rayo centrado.
+    Dibuja el rayo con gradiente vertical y efecto de profundidad.
+    Usa una capa separada para el gradiente y composición alpha.
     """
-    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    cx, cy = size // 2, size // 2
-    r = size // 2
+    s = img.size[0]
+    pts = _get_bolt_polygon(cx, cy, size)
 
-    # ── 1. Fondo: gradiente radial del centro hacia afuera ──
-    # Se dibuja pixel a pixel para un gradiente suave y circular
-    for y in range(size):
-        for x in range(size):
-            dx = x - cx
-            dy = y - cy
-            dist = math.sqrt(dx * dx + dy * dy)
-            if dist <= r:
-                t = min(dist / r, 1.0)  # 0 = centro, 1 = borde
-                col = _lerp_color(COLOR_BG_CENTER, COLOR_BG_OUTER, t)
-                img.putpixel((x, y), col)
-
-    # ── 2. Anti-aliasing del borde circular (máscara suave) ──
-    mask = Image.new("L", (size, size), 0)
+    # Crear máscara del rayo
+    mask = Image.new("L", (s, s), 0)
     mask_draw = ImageDraw.Draw(mask)
-    mask_draw.ellipse([0, 0, size - 1, size - 1], fill=255)
+    mask_draw.polygon(pts, fill=255)
+
+    # Crear capa del rayo con gradiente vertical
+    bolt_layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    bolt_draw = ImageDraw.Draw(bolt_layer)
+
+    # Calcular bounding box del rayo
+    min_y = min(p[1] for p in pts)
+    max_y = max(p[1] for p in pts)
+    height = max_y - min_y
+
+    # Dibujar bandas horizontales con gradiente
+    for y in range(s):
+        if y < min_y or y > max_y:
+            continue
+        t = (y - min_y) / max(height, 1)
+        if t < 0.5:
+            color = _lerp_color(COLOR_BOLT_TOP, COLOR_BOLT_MID, t * 2)
+        else:
+            color = _lerp_color(COLOR_BOLT_MID, COLOR_BOLT_BOT, (t - 0.5) * 2)
+        bolt_draw.line([(0, y), (s - 1, y)], fill=color)
+
+    # Aplicar la máscara al rayo
+    bolt_layer.putalpha(mask)
+
+    # Componer sobre la imagen
+    img.paste(Image.alpha_composite(
+        Image.new("RGBA", (s, s), (0, 0, 0, 0)),
+        bolt_layer
+    ), (0, 0), bolt_layer)
+
+    return img
+
+
+def create_icon_master(master_size=2048):
+    """
+    Crea la imagen maestra del ícono a alta resolución (2048x2048).
+    Todos los elementos se renderizan a esta resolución y luego se reducen
+    con LANCZOS para obtener bordes nítidos y anti-aliasing perfecto.
+    """
+    s = master_size
+    cx, cy = s // 2, s // 2
+    r = s // 2
+
+    # ── 1. Fondo: gradiente radial suave ──
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    _draw_radial_gradient(img, cx, cy, r, COLOR_BG_CENTER, COLOR_BG_OUTER)
+
+    # ── 2. Máscara circular con anti-aliasing ──
+    # Renderizar la máscara a 2x para AA perfecto
+    mask_ss = 2
+    mask_size = s * mask_ss
+    mask = Image.new("L", (mask_size, mask_size), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.ellipse([0, 0, mask_size - 1, mask_size - 1], fill=255)
+    mask = mask.resize((s, s), Image.LANCZOS)
     img.putalpha(mask)
 
-    draw = ImageDraw.Draw(img)
-
-    # ── 3. Halo/glow violeta difuso (círculo semitransparente grande) ──
-    glow_r = int(r * 0.70)
-    glow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    glow_draw  = ImageDraw.Draw(glow_layer)
-    for step in range(12):
-        alpha = int(COLOR_GLOW[3] * (1 - step / 12) * 0.4)
-        gr    = glow_r - step * int(r * 0.035)
-        if gr > 0:
+    # ── 3. Halo/glow violeta difuso (varias capas con blur) ──
+    glow_layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow_layer)
+    # Glow central grande
+    glow_r = int(r * 0.65)
+    for step in range(20):
+        alpha = int(COLOR_GLOW[3] * (1 - step / 20) * 0.5)
+        gr = glow_r - step * int(r * 0.02)
+        if gr > 0 and alpha > 0:
             glow_draw.ellipse(
                 [cx - gr, cy - gr, cx + gr, cy + gr],
                 fill=(COLOR_GLOW[0], COLOR_GLOW[1], COLOR_GLOW[2], alpha)
             )
+    # Aplicar blur gaussiano para suavizar el glow
+    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=int(s * 0.04)))
     img = Image.alpha_composite(img, glow_layer)
-    draw = ImageDraw.Draw(img)
 
-    # ── 4. Borde circular violeta brillante ──
-    border_w = max(1, size // 22)
+    # ── 4. Resplandor del rayo (antes de dibujarlo) ──
+    bolt_glow = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    bolt_glow_draw = ImageDraw.Draw(bolt_glow)
+    glow_pts = _get_bolt_polygon(cx, cy, s)
+    # Dibujar forma expandida como glow
+    bolt_glow_draw.polygon(glow_pts, fill=COLOR_BOLT_GLOW)
+    bolt_glow = bolt_glow.filter(ImageFilter.GaussianBlur(radius=int(s * 0.035)))
+    img = Image.alpha_composite(img, bolt_glow)
+
+    # ── 5. Sombra del rayo (offset hacia abajo) ──
+    shadow_layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow_layer)
+    shadow_offset = int(s * 0.012)
+    shadow_pts = [(x, y + shadow_offset) for x, y in _get_bolt_polygon(cx, cy, s)]
+    shadow_draw.polygon(shadow_pts, fill=COLOR_SHADOW)
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=int(s * 0.015)))
+    img = Image.alpha_composite(img, shadow_layer)
+
+    # ── 6. Rayo con gradiente vertical ──
+    img = _draw_bolt_with_gradient(img, cx, cy, s)
+
+    # ── 7. Highlight sutil en la parte superior del rayo ──
+    highlight = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    h_draw = ImageDraw.Draw(highlight)
+    bolt_pts = _get_bolt_polygon(cx, cy, s)
+    min_y_bolt = min(p[1] for p in bolt_pts)
+    max_y_bolt = max(p[1] for p in bolt_pts)
+    h_bolt = max_y_bolt - min_y_bolt
+    # Máscara de highlight solo en el tercio superior
+    h_mask = Image.new("L", (s, s), 0)
+    h_mask_draw = ImageDraw.Draw(h_mask)
+    h_mask_draw.polygon(bolt_pts, fill=255)
+    # Gradiente de highlight (solo arriba)
+    for y in range(s):
+        if y < min_y_bolt or y > min_y_bolt + h_bolt * 0.35:
+            continue
+        t = (y - min_y_bolt) / (h_bolt * 0.35)
+        alpha = int(60 * (1 - t))
+        h_draw.line([(0, y), (s - 1, y)], fill=(255, 255, 255, alpha))
+    highlight.putalpha(h_mask)
+    img = Image.alpha_composite(img, highlight)
+
+    # ── 8. Borde circular violeta con gradiente ──
+    border_w = max(2, s // 20)
+    # Borde exterior
+    draw = ImageDraw.Draw(img)
     draw.ellipse(
-        [border_w, border_w, size - border_w - 1, size - border_w - 1],
+        [border_w // 2, border_w // 2, s - border_w // 2 - 1, s - border_w // 2 - 1],
         outline=COLOR_VIOLET, width=border_w
     )
+    # Línea interior más brillante (efecto de profundidad)
+    inner_bw = max(1, border_w // 3)
+    draw.ellipse(
+        [border_w - inner_bw, border_w - inner_bw,
+         s - border_w + inner_bw - 1, s - border_w + inner_bw - 1],
+        outline=(*COLOR_VIOLET_BRT[:3], 100), width=inner_bw
+    )
 
-    # ── 5. Rayo centrado con gradiente vertical manual ──
-    # Se dibuja primero en una capa de mayor resolución y luego se reduce (supersampling)
-    ss = 4  # factor de supersampling para bordes suaves
-    ss_size = size * ss
-    ss_img  = Image.new("RGBA", (ss_size, ss_size), (0, 0, 0, 0))
-    ss_draw = ImageDraw.Draw(ss_img)
-    _draw_bolt(ss_draw, ss_size // 2, ss_size // 2, ss_size)
-    # Escala de vuelta al tamaño destino con alta calidad (LANCZOS)
-    bolt_img = ss_img.resize((size, size), Image.LANCZOS)
+    # Reaplicar la máscara circular para limpiar bordes
+    img.putalpha(mask)
 
-    # Aplica el gradiente vertical al rayo (recolorea píxel a píxel)
-    bolt_arr = bolt_img.load()
-    for y in range(size):
-        t = y / max(size - 1, 1)
-        grad_color = _lerp_color(COLOR_BOLT_TOP, COLOR_BOLT_BOT, t)
-        for x in range(size):
-            r_val, g_val, b_val, a_val = bolt_arr[x, y]
-            if a_val > 10:
-                bolt_arr[x, y] = (grad_color[0], grad_color[1], grad_color[2], a_val)
-
-    img = Image.alpha_composite(img, bolt_img)
     return img
 
 
 def create_icon():
     """
-    Genera el archivo icon.ico con múltiples resoluciones para que se vea
-    perfectamente en la barra de tareas, la ventana emergente y el explorador.
-    Guarda el resultado en assets/icon.ico.
+    Genera el archivo icon.ico con múltiples resoluciones de alta calidad.
+    Renderiza todo a 2048x2048 y reduce con LANCZOS para cada tamaño.
+    Esto produce íconos nítidos comparables a los de Chrome o Microsoft Office.
     """
     target_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.ico")
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -142,12 +233,18 @@ def create_icon():
     # Tamaños requeridos para un .ico completo y de alta calidad
     sizes = [256, 128, 64, 48, 32, 16]
 
-    print("[INFO] Generando ícono programático...")
+    print("[INFO] Generando ícono HD con supersampling...")
+    print("  [1/2] Renderizando imagen maestra a 2048x2048...")
+    master = create_icon_master(2048)
+    print("  [OK] Imagen maestra generada")
+
+    print("  [2/2] Generando tamaños finales con LANCZOS...")
     images = []
     for s in sizes:
-        frame = create_icon_at_size(s)
+        # Reducción con LANCZOS (mejor anti-aliasing disponible)
+        frame = master.resize((s, s), Image.LANCZOS)
         images.append(frame)
-        print(f"  [OK] {s}x{s} generado")
+        print(f"    [OK] {s}x{s} generado")
 
     # El primer elemento es el principal (256x256); los demás son los tamaños adicionales
     images[0].save(
@@ -156,7 +253,7 @@ def create_icon():
         sizes=[(s, s) for s in sizes],
         append_images=images[1:]
     )
-    print(f"[LISTO] Icono guardado en: {target_path}")
+    print(f"[LISTO] Ícono HD guardado en: {target_path}")
 
 
 # =============================================================================

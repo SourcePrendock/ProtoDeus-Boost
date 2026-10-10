@@ -20,6 +20,9 @@ import json
 #  HELPERS DE EJECUCIÓN DE COMANDOS
 # =============================================================================
 
+CREATE_NO_WINDOW = 0x08000000
+
+
 def _run(cmd, shell=True, timeout=60):
     """
     Ejecuta un comando del sistema de forma silenciosa y captura su salida.
@@ -28,7 +31,8 @@ def _run(cmd, shell=True, timeout=60):
     try:
         r = subprocess.run(
             cmd, shell=shell, capture_output=True, text=True,
-            encoding="utf-8", errors="ignore", timeout=timeout
+            encoding="utf-8", errors="ignore", timeout=timeout,
+            creationflags=CREATE_NO_WINDOW
         )
         return r.returncode, r.stdout, r.stderr
     except subprocess.TimeoutExpired:
@@ -247,294 +251,67 @@ def get_license_info():
 # =============================================================================
 
 REPARACIONES_WINDOWS = {
-
-    # ── Reparación del arranque usando bcdboot y bcdedit (funciona desde Windows activo) ──
-    "startup": {
-        "nombre": "🚀  Reparar Inicio de Windows",
-        "descripcion": "Reconstruye el BCD, repara entradas de arranque y verifica archivos de sistema.",
-        "tiempo_estimado": "~5-10 min",
+    # ── Módulo 1: Reparación Integrada de Sistema (SFC + DISM) ──
+    "system": {
+        "nombre": "🛡  Reparación Integrada de Sistema (SFC + DISM)",
+        "descripcion": "Comprueba y repara la integridad del núcleo de Windows y controladores base usando DISM y SFC.",
+        "tiempo_estimado": "~15-30 min",
         "pasos": [
-            # Reconstruye el entorno de arranque EFI/MBR usando la instalación de Windows activa
-            ("Reconstruyendo archivos de arranque con bcdboot (EFI + BIOS)...",
-             "bcdboot C:\\Windows /s C: /f ALL /l es-ES"),
-
-            # Limpia entradas de arranque duplicadas o corruptas del BCD
-            ("Limpiando entradas corruptas del BCD...",
-             "bcdedit /deletevalue {current} recoverysequence 2>nul & "
-             "bcdedit /set {bootmgr} displaybootmenu no 2>nul & "
-             "bcdedit /set {current} recoveryenabled yes"),
-
-            # Fuerza la reparación de archivos del sistema con SFC
-            ("Reparando archivos del sistema con SFC /scannow...",
-             "sfc /scannow"),
-
-            # Usa DISM para reparar la imagen del sistema si SFC encontró problemas
-            ("Reparando imagen del sistema con DISM (puede tardar)...",
+            ("Reparando la imagen del sistema con DISM (puede tardar bastante)...",
              "DISM /Online /Cleanup-Image /RestoreHealth"),
-
-            # Verifica y establece el timeout de arranque correcto
-            ("Configurando opciones de arranque correctas...",
-             "bcdedit /timeout 5 & "
-             "bcdedit /set {current} bootstatuspolicy IgnoreAllFailures & "
-             "bcdedit /set {current} recoveryenabled yes"),
-        ],
-    },
-
-    # ── Restablece pantalla de bloqueo y servicio de inicio de sesión ──
-    "lockscreen": {
-        "nombre": "🔐  Reparar Pantalla de Bloqueo",
-        "descripcion": "Restablece la pantalla de bloqueo y el servicio de inicio de sesión.",
-        "tiempo_estimado": "~1-2 min",
-        "pasos": [
-            # Detiene y reinicia el servicio de pantalla de bloqueo
-            ("Reiniciando servicio de pantalla de bloqueo...",
-             "sc stop LockAppHost & sc start LockAppHost"),
-
-            # Elimina la caché local de la app de pantalla de bloqueo
-            ("Limpiando caché de pantalla de bloqueo...",
-             r'del /q /f "%localappdata%\Packages\Microsoft.LockApp_cw5n1h2txyewy\LocalCache\*" 2>nul'),
-
-            # Elimina políticas de grupo que bloquean la personalización de la pantalla de bloqueo
-            ("Restableciendo políticas de pantalla de bloqueo...",
-             'reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization" /f 2>nul'),
-
-            # Vuelve a registrar la app de pantalla de bloqueo en el sistema
-            ("Registrando pantalla de bloqueo de nuevo...",
-             'powershell -NonInteractive -Command "Get-AppxPackage *LockApp* | '
-             'ForEach-Object { Add-AppxPackage -DisableDevelopmentMode -Register '
-             '(Join-Path $_.InstallLocation AppXManifest.xml) -ErrorAction SilentlyContinue }"'),
-        ],
-    },
-
-    # ── Repara la app de Configuración de Windows que se cierra sola ──
-    "settings": {
-        "nombre": "⚙  Reparar Configuración de Windows",
-        "descripcion": "Repara la app de Configuración que se cierra automáticamente al abrirse.",
-        "tiempo_estimado": "~2-3 min",
-        "pasos": [
-            # Vuelve a registrar la app de Configuración del sistema
-            ("Registrando app de Configuración...",
-             'powershell -NonInteractive -Command "Get-AppxPackage *windows.immersivecontrolpanel* | '
-             'ForEach-Object { Add-AppxPackage -DisableDevelopmentMode -Register '
-             '(Join-Path $_.InstallLocation AppXManifest.xml) -ErrorAction SilentlyContinue }"'),
-
-            # Asegura que el Panel de Control no esté bloqueado por política de usuario
-            ("Reparando permisos de Configuración en registro...",
-             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer" '
-             '/v NoControlPanel /t REG_DWORD /d 0 /f'),
-
-            # Restablece los permisos de la carpeta WindowsApps donde viven las apps UWP
-            ("Restableciendo permisos de SystemSettings...",
-             'icacls "%ProgramFiles%\\WindowsApps" /reset /T /C /Q 2>nul'),
-
-            # Limpia la caché local de la app de Configuración
-            ("Limpiando caché de la app de Configuración...",
-             r'powershell -NonInteractive -Command "Remove-Item -Path '
-             r"'$env:LOCALAPPDATA\Packages\windows.immersivecontrolpanel_cw5n1h2txyewy\LocalCache' "
-             r'-Recurse -Force -ErrorAction SilentlyContinue"'),
-        ],
-    },
-
-    # ── Escaneo y reparación profunda de archivos del sistema ──
-    "sfc": {
-        "nombre": "🛡  Escaneo SFC + DISM",
-        "descripcion": "Verifica y repara archivos del sistema dañados. El DISM puede tardar 15-30 min.",
-        "tiempo_estimado": "~20-40 min",
-        "pasos": [
-            # SFC: escanea y repara archivos protegidos del sistema
-            ("Ejecutando SFC (Comprobador de archivos del sistema)... ~5 min",
-             "sfc /scannow"),
-
-            # DISM CheckHealth: verifica si la imagen tiene daños marcados
-            ("Verificando estado de la imagen del sistema con DISM... ~2 min",
-             "DISM /Online /Cleanup-Image /CheckHealth"),
-
-            # DISM ScanHealth: escaneo completo buscando daños en la imagen
-            ("Escaneando la imagen del sistema con DISM... ~5 min",
-             "DISM /Online /Cleanup-Image /ScanHealth"),
-
-            # DISM RestoreHealth: descarga y restaura componentes dañados desde Windows Update
-            ("Reparando la imagen del sistema con DISM... ~15-30 min",
-             "DISM /Online /Cleanup-Image /RestoreHealth"),
-        ],
-    },
-
-    # ── Restablece Windows Store y re-registra todas las apps UWP ──
-    "store": {
-        "nombre": "🛒  Reparar Windows Store / Apps",
-        "descripcion": "Restablece la tienda de Microsoft y re-registra las apps universales.",
-        "tiempo_estimado": "~3-5 min",
-        "pasos": [
-            # Limpia la caché de la tienda de Windows
-            ("Reseteando Windows Store...",
-             "wsreset.exe"),
-
-            # Vuelve a registrar todas las apps UWP instaladas para todos los usuarios
-            ("Re-registrando apps de Microsoft...",
-             'powershell -NonInteractive -Command "Get-AppxPackage -AllUsers | '
-             'ForEach-Object { Add-AppxPackage -DisableDevelopmentMode -Register '
-             '(Join-Path $_.InstallLocation AppXManifest.xml) -ErrorAction SilentlyContinue }"'),
-
-            # Reinicia el servicio de Windows Update (necesario para la tienda)
-            ("Reiniciando servicios de la tienda...",
-             "net stop wuauserv & net start wuauserv"),
-        ],
-    },
-
-    # ── Resetea todos los componentes de Windows Update ──
-    "updates": {
-        "nombre": "🔃  Reparar Windows Update",
-        "descripcion": "Resetea los componentes de Windows Update para solucionar actualizaciones bloqueadas.",
-        "tiempo_estimado": "~2-4 min",
-        "pasos": [
-            # Detiene todos los servicios relacionados con Windows Update
-            ("Deteniendo servicios de Windows Update...",
-             "net stop wuauserv & net stop cryptSvc & net stop bits & net stop msiserver"),
-
-            # Elimina las carpetas de caché de actualizaciones descargadas
-            ("Eliminando caché de actualizaciones...",
-             r"rd /s /q C:\Windows\SoftwareDistribution 2>nul & rd /s /q C:\Windows\System32\catroot2 2>nul"),
-
-            # Reinicia todos los servicios de Windows Update
-            ("Reiniciando servicios de Windows Update...",
-             "net start wuauserv & net start cryptSvc & net start bits & net start msiserver"),
-
-            # Fuerza la detección de nuevas actualizaciones disponibles
-            ("Forzando comprobación de actualizaciones...",
-             "wuauclt /resetauthorization /detectnow"),
-        ],
-    },
-
-    # ── Repara el explorador de Windows y la barra de tareas ──
-    "taskbar": {
-        "nombre": "📌  Reparar Barra de Tareas / Explorer",
-        "descripcion": "Reinicia el explorador de Windows y repara la barra de tareas congelada.",
-        "tiempo_estimado": "~1-2 min",
-        "pasos": [
-            # Mata el proceso de explorer.exe para poder limpiarlo y relanzarlo
-            ("Terminando proceso Explorer.exe...",
-             "taskkill /f /im explorer.exe 2>nul"),
-
-            # Elimina la base de datos de caché de iconos que puede causar problemas
-            ("Limpiando caché de iconos (IconCache.db)...",
-             r'attrib -h "%localappdata%\IconCache.db" 2>nul & '
-             r'del /f /q "%localappdata%\IconCache.db" 2>nul'),
-
-            # Elimina las miniaturas en caché que pueden estar corruptas
-            ("Limpiando caché de miniaturas (thumbcache)...",
-             r'del /f /q /s "%localappdata%\Microsoft\Windows\Explorer\thumbcache_*.db" 2>nul'),
-
-            # Limpia la caché de notificaciones de la barra de tareas en el registro
-            ("Limpiando caché de notificaciones de la barra de tareas...",
-             r'reg delete "HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify" /v IconStreams /f 2>nul & '
-             r'reg delete "HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify" /v PastIconsStream /f 2>nul'),
-
-            # Relanza explorer.exe usando PowerShell para asegurar contexto correcto de usuario
-            ("Reiniciando Explorer.exe...",
-             'powershell -NonInteractive -Command "Start-Process explorer.exe"'),
-        ],
-    },
-
-    # ── Repara el servicio de audio y sus dependencias ──
-    "audio": {
-        "nombre": "🔊  Reparar Audio de Windows",
-        "descripcion": "Reinicia los servicios de audio y repara el subsistema de sonido.",
-        "tiempo_estimado": "~2-4 min",
-        "pasos": [
-            # Reinicia el servicio principal de audio de Windows
-            ("Reiniciando servicio Windows Audio...",
-             "net stop Audiosrv & net start Audiosrv"),
-
-            # Reinicia el servicio que gestiona los dispositivos de audio (endpoints)
-            ("Reiniciando servicio AudioEndpointBuilder...",
-             "net stop AudioEndpointBuilder & net start AudioEndpointBuilder"),
-
-            # Usa SFC para verificar y reparar archivos de drivers de audio dañados
-            ("Escaneando drivers de audio con SFC...",
+            ("Verificando y reparando archivos del sistema con SFC...",
              "sfc /scannow"),
         ],
     },
 
-    # ── Verifica la integridad de drivers y repara los dañados ──
-    "drivers": {
-        "nombre": "🖱  Reparar Drivers del Sistema",
-        "descripcion": "Verifica la integridad de drivers y repara los dañados.",
-        "tiempo_estimado": "~10-20 min",
+    # ── Módulo 2: Reparación de Entorno de Usuario / Shell & Apps ──
+    "shell": {
+        "nombre": "🖥  Reparación de Entorno de Usuario (Shell & Apps)",
+        "descripcion": "Soluciona congelamientos del explorador, barra de tareas, menú de inicio, aplicaciones UWP y búsqueda.",
+        "tiempo_estimado": "~2-5 min",
         "pasos": [
-            # Verifica la integridad de archivos sin reparar (modo solo verificación)
-            ("Verificando integridad de drivers con SFC...",
-             "sfc /verifyonly"),
-
-            # Repara la imagen del sistema que incluye todos los drivers
-            ("Reparando imagen con controladores (DISM)...",
-             "DISM /Online /Cleanup-Image /RestoreHealth"),
-
-            # Escaneo y reparación completa de archivos del sistema incluyendo drivers
-            ("Escaneando y reparando archivos de sistema...",
-             "sfc /scannow"),
-        ],
-    },
-
-    # ── Reinicia Windows Defender y actualiza sus definiciones ──
-    "defender": {
-        "nombre": "🛡  Reparar Windows Defender",
-        "descripcion": "Reinicia Windows Defender y actualiza sus definiciones de seguridad.",
-        "tiempo_estimado": "~5-10 min",
-        "pasos": [
-            # Reinicia el servicio principal de Windows Defender
-            ("Reiniciando Windows Defender...",
-             "net stop WinDefend & net start WinDefend"),
-
-            # Descarga las últimas definiciones de virus/malware
-            ("Actualizando definiciones de Defender...",
-             r'"C:\Program Files\Windows Defender\MpCmdRun.exe" -SignatureUpdate'),
-
-            # Ejecuta un análisis rápido para verificar que Defender funciona
-            ("Ejecutando análisis rápido de Defender...",
-             r'"C:\Program Files\Windows Defender\MpCmdRun.exe" -Scan -ScanType 1'),
-        ],
-    },
-
-    # ── Repara el Menú de Inicio y el buscador de Windows ──
-    "startmenu": {
-        "nombre": "🔍  Reparar Menú de Inicio / Búsqueda",
-        "descripcion": "Elimina la base de datos de indexación y reinicia los servicios de búsqueda para que el menú de inicio y la búsqueda sean instantáneos.",
-        "tiempo_estimado": "~3-5 min",
-        "pasos": [
-            # Detiene el servicio de búsqueda de Windows para poder modificar sus archivos
-            ("Deteniendo servicio de búsqueda de Windows (WSearch)...",
-             "net stop WSearch /y"),
-
-            # Elimina la base de datos de índice de búsqueda que puede estar corrupta
-            ("Eliminando base de datos de indexación corrupta...",
+            ("Deteniendo servicios de búsqueda y explorador...",
+             "taskkill /f /im explorer.exe 2>nul & net stop WSearch /y 2>nul"),
+            ("Limpiando cachés de Iconos y Búsqueda...",
+             r'del /f /q "%localappdata%\IconCache.db" 2>nul & '
              r'del /f /q "%ProgramData%\Microsoft\Search\Data\Applications\Windows\Windows.edb" 2>nul & '
              r'rmdir /s /q "%ProgramData%\Microsoft\Search\Data\Applications\Windows" 2>nul'),
+            ("Re-registrando aplicaciones universales (AppX)...",
+             'powershell -NonInteractive -Command "Get-AppXPackage -AllUsers | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register \\"$($_.InstallLocation)\\AppXManifest.xml\\" -ErrorAction SilentlyContinue}"'),
+            ("Reiniciando servicios y explorador...",
+             'net start WSearch & powershell -NonInteractive -Command "Start-Process explorer.exe"'),
+        ],
+    },
 
-            # Aplica ajustes de registro para deshabilitar búsqueda web en el menú de inicio
-            ("Aplicando ajustes de registro para búsqueda local instantánea...",
-             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" /v BingSearchEnabled /t REG_DWORD /d 0 /f & '
-             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" /v CortanaConsent /t REG_DWORD /d 0 /f & '
-             'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search" /v AllowCortana /t REG_DWORD /d 0 /f'),
-
-            # Vuelve a registrar la app del Shell de Windows (barra de tareas + menú inicio)
-            ("Re-registrando ShellExperienceHost (Menú de Inicio)...",
-             'powershell -NonInteractive -Command "Get-AppxPackage *ShellExperienceHost* | '
-             'ForEach-Object { Add-AppxPackage -DisableDevelopmentMode -Register '
-             '(Join-Path $_.InstallLocation AppXManifest.xml) -ErrorAction SilentlyContinue }"'),
-
-            # Vuelve a registrar la app de búsqueda de Windows (puede variar en Win10/Win11)
-            ("Re-registrando app de Búsqueda de Windows...",
-             'powershell -NonInteractive -Command "'
-             '$apps = @(\"*Windows.Search*\", \"*Cortana*\"); '
-             'foreach ($a in $apps) { '
-             'Get-AppxPackage $a -ErrorAction SilentlyContinue | ForEach-Object { '
-             'Add-AppxPackage -DisableDevelopmentMode -Register '
-             '(Join-Path $_.InstallLocation AppXManifest.xml) -ErrorAction SilentlyContinue } }"'),
-
-            # Reinicia el servicio de búsqueda para que comience a re-indexar
-            ("Reiniciando servicio de búsqueda y Explorer...",
-             "net start WSearch & "
-             'powershell -NonInteractive -Command "Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Sleep 1; Start-Process explorer"'),
+    # ── Módulo 3: Reparación de Servicios y Red ──
+    "services": {
+        "nombre": "⚙  Reparación de Servicios y Red (Update, Audio, Defender)",
+        "descripcion": "Restablece la infraestructura de servicios para actualizaciones, sonido, red y protección.",
+        "tiempo_estimado": "~3-5 min",
+        "pasos": [
+            ("Deteniendo servicios de Update, Audio y Criptografía...",
+             "net stop wuauserv /y & net stop bits /y & net stop cryptsvc /y & net stop audiosrv /y"),
+            ("Purgando directorios de actualizaciones (SoftwareDistribution y catroot2)...",
+             r'rd /s /q "%windir%\SoftwareDistribution" 2>nul & rd /s /q "%windir%\System32\catroot2" 2>nul'),
+            ("Restableciendo pila de red y caché DNS...",
+             "netsh winsock reset & netsh int ip reset & ipconfig /flushdns"),
+            ("Reiniciando servicios y actualizando Windows Defender...",
+             'net start wuauserv & net start bits & net start cryptsvc & net start audiosrv & '
+             r'"%ProgramFiles%\Windows Defender\MpCmdRun.exe" -SignatureUpdate'),
+        ],
+    },
+    
+    # ── Módulo 4: Reparación Avanzada / In-Place Upgrade (Vía ISO) ──
+    "advanced_iso": {
+        "nombre": "💽  Reparación Avanzada / In-Place Upgrade",
+        "descripcion": "Abre la página oficial de Microsoft para descargar la ISO de tu versión de Windows y reparar conservando archivos.",
+        "tiempo_estimado": "~1 min",
+        "pasos": [
+            ("Identificando versión de Windows y abriendo página de descarga oficial...",
+             'powershell -NonInteractive -NoProfile -Command "'
+             '$os = (Get-CimInstance Win32_OperatingSystem).Caption; '
+             'if ($os -match \'Windows 11\') { Start-Process \'https://www.microsoft.com/software-download/windows11\' } '
+             'else { Start-Process \'https://www.microsoft.com/software-download/windows10\' }"'),
         ],
     },
 }
@@ -599,6 +376,12 @@ def reparar_windows(repair_key):
                 yield item
             dism_thread.join()
             yield (f"  ✅ DISM RestoreHealth completado", pct_end)
+        elif "sfc" in cmd.lower() and "/scannow" in cmd.lower():
+            # SFC /scannow con reporte de porcentaje en vivo
+            import preventive_maintenance
+            for msg_sfc, p_sfc in preventive_maintenance.reparar_sfc_rapido():
+                sub_pct = int(pct_start + (p_sfc / 100.0) * (pct_end - pct_start))
+                yield (f"  {msg_sfc}", sub_pct)
         else:
             # Ejecución normal de comandos del sistema
             rc, stdout, stderr = _run(cmd, timeout=600)
@@ -617,49 +400,99 @@ def reparar_windows(repair_key):
 
 def limpiar_teams():
     """
-    Limpia completamente Microsoft Teams: cierra el proceso, elimina todos sus
-    datos en AppData (Roaming y Local), caché temporal, entradas de registro
-    y credenciales guardadas. Deja el sistema como si Teams nunca hubiera sido instalado.
+    Limpieza TOTAL de Microsoft Teams: elimina absolutamente todo rastro de Teams
+    del equipo. Cierra procesos, elimina Teams clásico y nuevo (MSIX), borra todos
+    los datos de perfil, caché, credenciales, registros y tareas programadas.
+    Después de esta limpieza, reinstalar Teams mostrará la pantalla de primer uso.
     """
     import shutil
 
     pasos = [
-        # Cierra todas las instancias de Teams incluyendo el proceso de actualización
-        ("Cerrando Microsoft Teams...",
+        # 1. Cierra todas las instancias de Teams (clásico, nuevo, actualizador)
+        ("Cerrando todos los procesos de Microsoft Teams...",
          'taskkill /f /im Teams.exe /t 2>nul & '
          'taskkill /f /im ms-teams.exe /t 2>nul & '
-         'taskkill /f /im Update.exe /t 2>nul'),
+         'taskkill /f /im Update.exe /t 2>nul & '
+         'taskkill /f /im MSTeamsUpdateService.exe /t 2>nul & '
+         'taskkill /f /im TeamsUpdaterService.exe /t 2>nul'),
 
-        # Elimina los datos de perfil de Teams en AppData\Roaming
+        # 2. Desinstalar Teams nuevo (MSIX/AppX) si está instalado
+        ("Desinstalando Teams nuevo (MSIX) si existe...",
+         'powershell -NonInteractive -NoProfile -Command "'
+         'Get-AppxPackage *MSTeams* -AllUsers -ErrorAction SilentlyContinue | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue; '
+         'Get-AppxPackage *MicrosoftTeams* -AllUsers -ErrorAction SilentlyContinue | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue"'),
+
+        # 3. Elimina datos de Teams clásico en AppData\Roaming
         ("Eliminando datos de Teams en AppData\\Roaming...",
          r'rmdir /s /q "%AppData%\Microsoft\Teams" 2>nul'),
 
-        # Elimina los datos de instalación de Teams en AppData\Local
+        # 4. Elimina datos de Teams en AppData\Local (instalación, caché, addins)
         ("Eliminando datos de Teams en AppData\\Local...",
          r'rmdir /s /q "%LocalAppData%\Microsoft\Teams" 2>nul & '
          r'rmdir /s /q "%LocalAppData%\Microsoft\TeamsMeetingAddin" 2>nul & '
-         r'rmdir /s /q "%LocalAppData%\Microsoft\TeamsPresenceAddin" 2>nul'),
+         r'rmdir /s /q "%LocalAppData%\Microsoft\TeamsPresenceAddin" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\Microsoft\TeamsMeetingAdd-in" 2>nul'),
 
-        # Elimina archivos temporales de Teams en la carpeta Temp
+        # 5. Elimina paquetes de Teams nuevo (MSIX) en Packages
+        ("Eliminando paquetes de Teams nuevo en Packages...",
+         'powershell -NonInteractive -NoProfile -Command "'
+         '$folders = Get-ChildItem \\"$env:LOCALAPPDATA\\Packages\\" -Directory -Filter \\"MSTeams_*\\" -ErrorAction SilentlyContinue; '
+         '$folders += Get-ChildItem \\"$env:LOCALAPPDATA\\Packages\\" -Directory -Filter \\"MicrosoftTeams_*\\" -ErrorAction SilentlyContinue; '
+         'foreach ($f in $folders) { Remove-Item $f.FullName -Recurse -Force -ErrorAction SilentlyContinue }"'),
+
+        # 6. Elimina configuración compartida de Teams
+        ("Eliminando configuración compartida de Teams...",
+         'powershell -NonInteractive -NoProfile -Command "'
+         '$p = \\"$env:LOCALAPPDATA\\Publishers\\8wekyb3d8bbwe\\TeamsSharedConfig\\"; '
+         'if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }"'),
+
+        # 7. Elimina caché de identidad y tokens (sesiones guardadas)
+        ("Eliminando caché de identidad, tokens y sesiones...",
+         r'rmdir /s /q "%LocalAppData%\Microsoft\IdentityCache" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\Microsoft\OneAuth" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\Microsoft\TokenBroker" 2>nul & '
+         r'rmdir /s /q "%AppData%\Microsoft\Credentials" 2>nul'),
+
+        # 8. Elimina archivos temporales de Teams
         ("Eliminando caché de Teams en Temp...",
-         r'del /f /s /q "%Temp%\*teams*" 2>nul'),
+         r'del /f /s /q "%Temp%\*teams*" 2>nul & '
+         r'del /f /s /q "%Temp%\*MSTeams*" 2>nul'),
 
-        # Elimina las entradas del registro relacionadas con Teams
+        # 9. Limpia credenciales de Teams del Credential Manager
+        ("Eliminando credenciales de Teams del Credential Manager...",
+         'powershell -NonInteractive -NoProfile -Command "'
+         '$creds = cmdkey /list 2>$null | Select-String \\"MicrosoftTeams|msteams|teams.microsoft\\" -ErrorAction SilentlyContinue; '
+         'foreach ($line in $creds) { '
+         '  $target = ($line -split \\"Target:\\s*\\")[1]; '
+         '  if ($target) { cmdkey /delete:$target 2>$null } '
+         '}"'),
+
+        # 10. Elimina TODAS las entradas de registro de Teams
         ("Limpiando entradas de registro de Teams...",
          'reg delete "HKCU\\Software\\Microsoft\\Office\\Teams" /f 2>nul & '
          'reg delete "HKCU\\Software\\Microsoft\\Teams" /f 2>nul & '
-         'reg delete "HKLM\\SOFTWARE\\Microsoft\\Teams" /f 2>nul'),
+         'reg delete "HKLM\\SOFTWARE\\Microsoft\\Teams" /f 2>nul & '
+         'reg delete "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Teams" /f 2>nul & '
+         'reg delete "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /f 2>nul & '
+         'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Teams" /f 2>nul'),
 
-        # Elimina tareas programadas de Teams (actualización automática, etc.)
+        # 11. Elimina auto-start de Teams
+        ("Eliminando entradas de inicio automático de Teams...",
+         'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "com.squirrel.Teams.Teams" /f 2>nul & '
+         'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "Teams" /f 2>nul & '
+         'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "MSTeams" /f 2>nul'),
+
+        # 12. Elimina tareas programadas de Teams
         ("Eliminando tareas programadas de Teams...",
-         'schtasks /delete /tn "\\Microsoft\\Teams\\*" /f 2>nul'),
+         'schtasks /delete /tn "\\Microsoft\\Teams\\*" /f 2>nul & '
+         'schtasks /delete /tn "MicrosoftTeamsUpdateTask" /f 2>nul'),
     ]
 
     total = len(pasos)
     for i, (msg, cmd) in enumerate(pasos):
         yield (msg, int((i / total) * 90))
-        _run(cmd, timeout=30)
-    yield ("✅ Teams limpiado completamente. Puedes reinstalarlo desde cero.", 100)
+        _run(cmd, timeout=60)
+    yield ("✅ Teams eliminado completamente. Al reinstalar aparecerá como nuevo, sin cuentas ni sesiones.", 100)
 
 
 # =============================================================================
@@ -668,50 +501,111 @@ def limpiar_teams():
 
 def limpiar_onedrive():
     """
-    Limpia completamente OneDrive: cierra el proceso, desregistra el cliente,
-    elimina todos sus datos en AppData (Local y Roaming), carpetas de configuración,
-    entradas de registro y tareas programadas. No elimina archivos del usuario en la nube.
+    Limpieza TOTAL de OneDrive: elimina absolutamente todo rastro de OneDrive
+    del equipo. Cierra procesos, desregistra el cliente, elimina datos de perfil,
+    caché, credenciales, registros, integración con el explorador y tareas.
+    Después de esta limpieza, reinstalar OneDrive mostrará la pantalla de primer uso.
     """
     pasos = [
-        # Cierra OneDrive y su proceso de instalación/actualización
-        ("Cerrando OneDrive...",
+        # 1. Cierra todos los procesos de OneDrive
+        ("Cerrando todos los procesos de OneDrive...",
          'taskkill /f /im OneDrive.exe /t 2>nul & '
-         'taskkill /f /im OneDriveSetup.exe /t 2>nul'),
+         'taskkill /f /im OneDriveSetup.exe /t 2>nul & '
+         'taskkill /f /im FileSyncHelper.exe /t 2>nul & '
+         'taskkill /f /im FileCoAuth.exe /t 2>nul'),
 
-        # Desregistra OneDrive del sistema (ambas versiones x64 y x86)
+        # 2. Desregistra OneDrive del sistema (x64 y x86)
         ("Desregistrando OneDrive del sistema...",
          'if exist "%SystemRoot%\\SysWOW64\\OneDriveSetup.exe" '
          '"%SystemRoot%\\SysWOW64\\OneDriveSetup.exe" /unregister 2>nul & '
          'if exist "%SystemRoot%\\System32\\OneDriveSetup.exe" '
          '"%SystemRoot%\\System32\\OneDriveSetup.exe" /unregister 2>nul'),
 
-        # Elimina los datos del cliente OneDrive en AppData\Local
+        # 3. Elimina datos de OneDrive en AppData\Local
         ("Eliminando datos de OneDrive en AppData\\Local...",
-         r'rmdir /s /q "%LocalAppData%\Microsoft\OneDrive" 2>nul'),
+         r'rmdir /s /q "%LocalAppData%\Microsoft\OneDrive" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\OneDrive" 2>nul'),
 
-        # Elimina los datos de configuración de OneDrive en AppData\Roaming
+        # 4. Elimina datos de OneDrive en AppData\Roaming
         ("Eliminando datos de OneDrive en AppData\\Roaming...",
          r'rmdir /s /q "%AppData%\Microsoft\OneDrive" 2>nul'),
 
-        # Elimina carpetas adicionales de OneDrive en el perfil del usuario
-        ("Eliminando carpeta de configuración de OneDrive...",
+        # 5. Elimina carpeta de usuario y logs
+        ("Eliminando carpeta de OneDrive del usuario y logs...",
          r'rmdir /s /q "%UserProfile%\OneDrive" 2>nul & '
-         r'rmdir /s /q "%LocalAppData%\OneDrive" 2>nul'),
+         r'rmdir /s /q "%ProgramData%\Microsoft OneDrive" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\Microsoft\OneDrive\setup\logs" 2>nul'),
 
-        # Elimina todas las entradas de registro de OneDrive (usuario y sistema)
+        # 6. Elimina caché de identidad y tokens de OneDrive
+        ("Eliminando caché de identidad y tokens de OneDrive...",
+         r'rmdir /s /q "%LocalAppData%\Microsoft\IdentityCache" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\Microsoft\TokenBroker" 2>nul'),
+
+        # 7. Limpia credenciales de OneDrive del Credential Manager
+        ("Eliminando credenciales de OneDrive del Credential Manager...",
+         'powershell -NonInteractive -NoProfile -Command "'
+         '$creds = cmdkey /list 2>$null | Select-String \\"OneDrive|onedrive\\" -ErrorAction SilentlyContinue; '
+         'foreach ($line in $creds) { '
+         '  $target = ($line -split \\"Target:\\s*\\")[1]; '
+         '  if ($target) { cmdkey /delete:$target 2>$null } '
+         '}"'),
+
+        # 8. Elimina TODAS las entradas de registro de OneDrive
         ("Limpiando entradas de registro de OneDrive...",
          'reg delete "HKCU\\Software\\Microsoft\\OneDrive" /f 2>nul & '
          'reg delete "HKLM\\SOFTWARE\\Microsoft\\OneDrive" /f 2>nul & '
+         'reg delete "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\OneDrive" /f 2>nul & '
+         'reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\OneDrive" /f 2>nul & '
          'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "OneDrive" /f 2>nul & '
-         'reg delete "HKLM\\SOFTWARE\\Policies\\Microsoft\\OneDrive" /f 2>nul'),
+         'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "OneDriveSetup" /f 2>nul'),
 
-        # Elimina tareas programadas de OneDrive (sincronización automática, etc.)
+        # 9. Elimina integración de OneDrive del explorador de archivos (CLSID)
+        ("Eliminando integración de OneDrive del Explorador de archivos...",
+         'reg delete "HKCU\\Software\\Classes\\CLSID\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}" /f 2>nul & '
+         'reg delete "HKCU\\Software\\Classes\\WOW6432Node\\CLSID\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}" /f 2>nul & '
+         'reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\OneDrive" /v DisableFileSyncNGSC /t REG_DWORD /d 1 /f 2>nul'),
+
+        # 10. Elimina entradas del namespace del explorador
+        ("Eliminando namespace de OneDrive del explorador...",
+         'reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}" /f 2>nul'),
+
+        # 11. Elimina tareas programadas de OneDrive
         ("Eliminando tareas programadas de OneDrive...",
-         'schtasks /delete /tn "\\Microsoft\\Windows\\OneDrive\\*" /f 2>nul'),
+         'schtasks /delete /tn "\\Microsoft\\Windows\\OneDrive\\*" /f 2>nul & '
+         'schtasks /delete /tn "OneDrive*" /f 2>nul'),
     ]
 
     total = len(pasos)
     for i, (msg, cmd) in enumerate(pasos):
         yield (msg, int((i / total) * 90))
-        _run(cmd, timeout=30)
-    yield ("✅ OneDrive limpiado completamente. Puedes reinstalarlo desde cero.", 100)
+        _run(cmd, timeout=60)
+    yield ("✅ OneDrive eliminado completamente. Al reinstalar aparecerá como nuevo, sin cuentas ni sesiones.", 100)
+
+
+# =============================================================================
+#  LIMPIEZA DE AUTODESK / AUTOCAD / REVIT
+# =============================================================================
+
+def limpiar_autodesk():
+    """
+    Limpieza Exclusiva de Instaladores de Autodesk.
+    No desinstala software ni borra licencias o registros.
+    Elimina C:\\Autodesk y temporales generados durante la instalación.
+    """
+    pasos = [
+        ("Eliminando instalador extraído en C:\\Autodesk...",
+         r'rmdir /s /q "C:\Autodesk" 2>nul'),
+        ("Eliminando temporales de instalación en %TEMP%...",
+         r'powershell -NonInteractive -Command "Get-ChildItem -Path $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like \'*Autodesk*\' -or $_.Name -like \'*AdODIS*\' -or $_.Name -like \'*Odis*\' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"'),
+        ("Eliminando paquetes temporales de despliegue en ProgramData...",
+         r'powershell -NonInteractive -Command "if (Test-Path \'C:\ProgramData\Autodesk\Installer\') { Remove-Item -Path \'C:\ProgramData\Autodesk\Installer\*\' -Recurse -Force -ErrorAction SilentlyContinue }"'),
+        ("Eliminando caché de Autodesk Access y AdODIS...",
+         r'rmdir /s /q "%LocalAppData%\Autodesk\ODIS" 2>nul & '
+         r'rmdir /s /q "%LocalAppData%\Autodesk\Autodesk Access" 2>nul'),
+    ]
+
+    total = len(pasos)
+    for i, (msg, cmd) in enumerate(pasos):
+        yield (msg, int((i / total) * 90))
+        _run(cmd, timeout=60)
+    yield ("✅ Temporales e instaladores de Autodesk limpiados (sin afectar software instalado).", 100)
